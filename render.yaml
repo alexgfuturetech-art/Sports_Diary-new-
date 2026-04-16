@@ -11,7 +11,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: PIP_NO_BINARY
-        value: :none:
+        value: ":none:"
       - key: MONGODB_URL
         sync: false
       - key: SECRET_KEY
