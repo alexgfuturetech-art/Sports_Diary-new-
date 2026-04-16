@@ -160,6 +160,40 @@ async def search_professionals(
     return professionals
 
 
+@router.get("/availability/{availability_id}/booked-dates")
+async def get_booked_dates(availability_id: str):
+    """
+    Public endpoint — returns the list of match dates that already have a
+    confirmed or pending booking for this availability slot.
+    The Flutter calendar uses this to grey-out / mark dates as 'Slot Booked'.
+    """
+    db = get_database()
+
+    # Validate ID format early so we return 400 instead of an empty list
+    try:
+        ObjectId(availability_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid availability ID")
+
+    cursor = db.professional_bookings.find(
+        {
+            "professional_id": availability_id,
+            "status": {"$in": ["confirmed", "pending"]},
+        },
+        {"match_date": 1, "_id": 0},
+    )
+    bookings = await cursor.to_list(length=500)
+
+    # Return only the date part (YYYY-MM-DD) deduplicated
+    booked_dates = sorted({
+        b["match_date"][:10]
+        for b in bookings
+        if b.get("match_date")
+    })
+
+    return {"booked_dates": booked_dates}
+
+
 @router.get("/availability/{availability_id}")
 async def get_availability(availability_id: str):
     """Get professional availability details"""
