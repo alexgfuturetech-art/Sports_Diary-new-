@@ -184,11 +184,19 @@ async def get_booked_dates(availability_id: str):
     )
     bookings = await cursor.to_list(length=500)
 
-    # Return only the date part (YYYY-MM-DD) deduplicated
+    # match_date is stored as a BSON datetime (Python datetime object).
+    # Convert to "YYYY-MM-DD" string regardless of whether it comes back as
+    # a datetime object or a legacy ISO string.
+    def _to_date_str(val) -> str | None:
+        if val is None:
+            return None
+        if hasattr(val, "strftime"):          # datetime / date object
+            return val.strftime("%Y-%m-%d")
+        return str(val)[:10]                  # fallback: ISO string slice
+
     booked_dates = sorted({
-        b["match_date"][:10]
-        for b in bookings
-        if b.get("match_date")
+        s for b in bookings
+        if (s := _to_date_str(b.get("match_date"))) is not None
     })
 
     return {"booked_dates": booked_dates}
