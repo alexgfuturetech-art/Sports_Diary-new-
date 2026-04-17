@@ -437,10 +437,11 @@ async def confirm_professional_payment(
     await db.users.update_one(
         {"_id": current_user["_id"]},
         {"$set": {
-            "roles":                new_roles,
-            "professional_status":  "active",
+            "roles":                 new_roles,
+            "role":                  "professional",
+            "professional_status":   "active",
             "professional_fee_paid": True,
-            "updated_at":           datetime.utcnow(),
+            "updated_at":            datetime.utcnow(),
         }},
     )
     updated = await db.users.find_one({"_id": current_user["_id"]})

@@ -788,7 +788,7 @@ async def confirm_professional_fee(
         {"_id": ObjectId(user_id)},
         {"$set": {
             "roles":                        roles,
-            "role":                         roles[0],
+            "role":                         "professional",
             "professional_status":          "active",
             "professional_fee_paid":        True,
             "professional_fee_paid_at":     datetime.utcnow(),
@@ -797,6 +797,37 @@ async def confirm_professional_fee(
         }},
     )
     return {"message": f"Professional role activated for user {user_id}", "roles": roles}
+
+
+# ─── ONE-TIME DATA MIGRATIONS ─────────────────────────────────────────────────
+
+@router.post("/migrate/fix-role-field")
+async def migrate_fix_role_field(current_user: dict = Depends(get_current_user)):
+    """
+    One-time migration: sync the single `role` field with the `roles[]` array
+    for users whose role field got stuck at 'player' after professional/organizer
+    was granted. Safe to call multiple times — only touches affected documents.
+    """
+    _admin_or_super(current_user)
+    db = get_database()
+
+    # Fix professionals: have "professional" in roles[] but role != "professional"
+    pro_result = await db.users.update_many(
+        {"roles": "professional", "role": {"$ne": "professional"}},
+        {"$set": {"role": "professional", "updated_at": datetime.utcnow()}},
+    )
+
+    # Fix organizers: have "organizer" in roles[] but role != "organizer"
+    org_result = await db.users.update_many(
+        {"roles": "organizer", "role": {"$ne": "organizer"}},
+        {"$set": {"role": "organizer", "updated_at": datetime.utcnow()}},
+    )
+
+    return {
+        "message": "Migration complete",
+        "professionals_fixed": pro_result.modified_count,
+        "organizers_fixed":    org_result.modified_count,
+    }
 
 
 # ─── ADMIN STATS (update to include new collections) ──────────────────────────
