@@ -16,7 +16,8 @@ lib/
 │   ├── network/dio_client.dart        # Dio + Auth interceptor
 │   ├── providers/auth_provider.dart   # Global auth state (Riverpod)
 │   ├── router/app_router.dart         # GoRouter + auth guards
-│   └── theme/app_theme.dart           # Light & dark themes
+│   ├── theme/app_theme.dart           # Light & dark themes
+│   └── utils/url_utils.dart 
 ├── features/
 │   ├── auth/
 │   │   ├── data/
