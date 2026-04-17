@@ -35,6 +35,7 @@ GET  /api/media/gallery/{entity_type}/{entity_id}  all assets for one entity
 """
 
 import os
+import re
 import uuid
 import mimetypes
 from datetime import datetime
@@ -81,7 +82,12 @@ def _serialize(doc: dict) -> dict:
     return doc
 
 def _get_base_url() -> str:
-    return os.getenv("BASE_URL", "http://localhost:8000")
+    url = os.getenv("BASE_URL", "http://localhost:8000").rstrip("/")
+    # Normalize: http://host:443 → https://host (common Render misconfiguration)
+    url = re.sub(r'^http://(.*):443$', r'https://\1', url)
+    # Normalize: http://host:80 → http://host
+    url = re.sub(r'^(http://.*):80$', r'\1', url)
+    return url
 
 
 # ─── UPLOAD ──────────────────────────────────────────────────────────────────

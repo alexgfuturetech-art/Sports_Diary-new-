@@ -418,6 +418,35 @@ async def request_professional_role(
     }
 
 
+@router.post("/confirm-professional-payment")
+async def confirm_professional_payment(
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Called by the app after the in-app mock payment flow succeeds.
+    Activates the professional role immediately (no admin approval needed for
+    self-serve payment). In production, replace or supplement with a real
+    payment-gateway webhook.
+    """
+    db = get_database()
+    roles = current_user.get("roles", [])
+    if "professional" in roles and current_user.get("professional_status") == "active":
+        raise HTTPException(status_code=400, detail="Professional role already active")
+
+    new_roles = roles if "professional" in roles else roles + ["professional"]
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {
+            "roles":                new_roles,
+            "professional_status":  "active",
+            "professional_fee_paid": True,
+            "updated_at":           datetime.utcnow(),
+        }},
+    )
+    updated = await db.users.find_one({"_id": current_user["_id"]})
+    return _user_dict(updated, include_private=True)
+
+
 @router.post("/add-role")
 async def add_role(
     data: RoleRequest,
