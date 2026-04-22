@@ -111,20 +111,39 @@ async def get_pending_invitations(
 ):
     """Get all pending invitations for current user"""
     db = get_database()
-    
-    # Find all pending invitations for this user
+
     invitations_cursor = db.team_invitations.find({
         "user_id": str(current_user["_id"]),
         "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()}  # Not expired
+        "expires_at": {"$gt": datetime.utcnow()}
     }).sort([("created_at", -1)])
-    
+
     invitations = await invitations_cursor.to_list(length=100)
-    
+
+    # Batch-fetch organizer avatars so the invitation row can show a real photo
+    organizer_ids = []
+    for inv in invitations:
+        oid = inv.get("organizer_id")
+        if oid:
+            try:
+                organizer_ids.append(ObjectId(oid))
+            except Exception:
+                pass
+
+    avatar_map = {}
+    if organizer_ids:
+        async for u in db.users.find(
+            {"_id": {"$in": organizer_ids}}, {"_id": 1, "avatar": 1}
+        ):
+            avatar_map[str(u["_id"])] = u.get("avatar")
+
     for invitation in invitations:
         invitation["id"] = str(invitation["_id"])
         del invitation["_id"]
-    
+        oid = invitation.get("organizer_id")
+        if oid and oid in avatar_map:
+            invitation["organizer_avatar"] = avatar_map[oid]
+
     return invitations
 
 
@@ -465,9 +484,6 @@ async def create_manager(
                 detail="Failed to create manager account. Please try again."
             )
     
-    # Default permissions if not provided
-    default_permissions = ["create_tournament", "edit_tournament", "view_registrations"]
-    
     # Create manager entry in organizer_managers collection
     manager_dict = {
         "organizer_id": str(current_user["_id"]),
@@ -477,7 +493,7 @@ async def create_manager(
         "phone": manager_data.phone,
         "email": manager_data.email,
         "role_description": manager_data.role_description,
-        "permissions": manager_data.permissions or default_permissions,
+        "permissions": manager_data.permissions or [],
         "is_active": True,
         "is_verified": True,  # Always verified when created by organizer
         "created_at": datetime.utcnow(),
@@ -511,11 +527,28 @@ async def get_my_managers(
     
     managers_cursor = db.organizer_managers.find(query).sort([("created_at", -1)])
     managers = await managers_cursor.to_list(length=100)
-    
+
+    # Batch-fetch avatars for linked user accounts
+    user_ids = [
+        ObjectId(m["manager_user_id"])
+        for m in managers
+        if m.get("manager_user_id")
+    ]
+    avatar_map = {}
+    if user_ids:
+        users_cursor = db.users.find(
+            {"_id": {"$in": user_ids}}, {"_id": 1, "avatar": 1}
+        )
+        async for u in users_cursor:
+            avatar_map[str(u["_id"])] = u.get("avatar")
+
     for manager in managers:
         manager["id"] = str(manager["_id"])
         del manager["_id"]
-    
+        uid = manager.get("manager_user_id")
+        if uid and uid in avatar_map:
+            manager["avatar"] = avatar_map[uid]
+
     return managers
 
 

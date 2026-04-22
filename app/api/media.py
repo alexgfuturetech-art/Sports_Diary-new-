@@ -5,11 +5,15 @@ Upload pipeline
 ---------------
 POST /api/media/upload
   • Accepts any image (JPEG, PNG, WEBP, GIF) up to 10 MB.
-  • Saves the file under uploads/<entity_type>/ on disk.
+  • If CLOUDINARY_CLOUD_NAME env var is set → uploads to Cloudinary (permanent CDN URL).
+  • Otherwise → saves to uploads/<entity_type>/ on local disk (dev fallback).
   • Inserts a media_assets document in MongoDB with the public URL.
   • Returns the URL and media_id so the caller stores the URL in the
     relevant entity (user.avatar, venue.images, tournament.banner_image …).
-  
+
+  Required env vars for Cloudinary (set on Render):
+    CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+
   Allowed entity_types:
     user_avatar | venue | shop | tournament_banner | tournament_image |
     ad_banner | academy | community | team_logo | job_banner | profile_image
@@ -40,6 +44,9 @@ import uuid
 import mimetypes
 from datetime import datetime
 from typing import Optional, List
+
+import cloudinary
+import cloudinary.uploader
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from bson import ObjectId
@@ -88,6 +95,20 @@ def _get_base_url() -> str:
     # Normalize: http://host:80 → http://host
     url = re.sub(r'^(http://.*):80$', r'\1', url)
     return url
+
+
+def _use_cloudinary() -> bool:
+    """True when Cloudinary env vars are present (production). Falls back to local disk."""
+    return bool(os.getenv("CLOUDINARY_CLOUD_NAME"))
+
+
+def _cloudinary_cfg():
+    cloudinary.config(
+        cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME", ""),
+        api_key=os.getenv("CLOUDINARY_API_KEY", ""),
+        api_secret=os.getenv("CLOUDINARY_API_SECRET", ""),
+        secure=True,
+    )
 
 
 # ─── UPLOAD ──────────────────────────────────────────────────────────────────
@@ -147,29 +168,46 @@ async def upload_media(
     ext      = (file.filename or "image.jpg").rsplit(".", 1)[-1].lower()
     filename = f"{entity_type}_{uuid.uuid4().hex}.{ext}"
 
-    sub_dir   = os.path.join(UPLOAD_DIR, entity_type)
-    os.makedirs(sub_dir, exist_ok=True)
-    file_path = os.path.join(sub_dir, filename)
-    with open(file_path, "wb") as f:
-        f.write(data)
+    cld_public_id: str | None = None
 
-    public_url = f"{_get_base_url()}/uploads/{entity_type}/{filename}"
+    if _use_cloudinary():
+        _cloudinary_cfg()
+        cld_pid = f"sports_diary/{entity_type}/{filename.rsplit('.', 1)[0]}"
+        result  = cloudinary.uploader.upload(
+            data,
+            public_id=cld_pid,
+            resource_type="image",
+            overwrite=False,
+        )
+        public_url    = result["secure_url"]
+        cld_public_id = result["public_id"]
+        print(f"[MEDIA] Uploaded to Cloudinary: {public_url}")
+    else:
+        sub_dir   = os.path.join(UPLOAD_DIR, entity_type)
+        os.makedirs(sub_dir, exist_ok=True)
+        file_path = os.path.join(sub_dir, filename)
+        with open(file_path, "wb") as f:
+            f.write(data)
+        public_url = f"{_get_base_url()}/uploads/{entity_type}/{filename}"
+        print(f"[MEDIA] Saved locally: {file_path}")
 
     db  = get_database()
     now = datetime.utcnow()
     doc = {
-        "url":               public_url,
-        "filename":          filename,
-        "original_filename": file.filename,
-        "media_type":        "image",
-        "entity_type":       entity_type,
-        "entity_id":         entity_id,
-        "content_type":      content_type,
-        "size_bytes":        len(data),
-        "uploaded_by":       str(current_user["_id"]),
-        "is_active":         True,
-        "created_at":        now,
-        "updated_at":        now,
+        "url":                  public_url,
+        "filename":             filename,
+        "original_filename":    file.filename,
+        "media_type":           "image",
+        "entity_type":          entity_type,
+        "entity_id":            entity_id,
+        "content_type":         content_type,
+        "size_bytes":           len(data),
+        "uploaded_by":          str(current_user["_id"]),
+        "storage":              "cloudinary" if cld_public_id else "local",
+        "cloudinary_public_id": cld_public_id,
+        "is_active":            True,
+        "created_at":           now,
+        "updated_at":           now,
     }
     result = await db.media_assets.insert_one(doc)
 
@@ -204,13 +242,21 @@ async def delete_media(
     if doc["uploaded_by"] != user_id and role not in ("admin", "super_admin"):
         raise HTTPException(status_code=403, detail="Not authorised to delete this media")
 
-    # Remove file from disk
-    try:
-        fp = os.path.join(UPLOAD_DIR, doc.get("entity_type", ""), doc.get("filename", ""))
-        if os.path.exists(fp):
-            os.remove(fp)
-    except Exception as e:
-        print(f"[MEDIA] Warning: could not delete file from disk: {e}")
+    # Remove file from storage
+    cld_pid = doc.get("cloudinary_public_id")
+    if cld_pid:
+        try:
+            _cloudinary_cfg()
+            cloudinary.uploader.destroy(cld_pid, resource_type="image")
+        except Exception as e:
+            print(f"[MEDIA] Warning: could not delete from Cloudinary: {e}")
+    else:
+        try:
+            fp = os.path.join(UPLOAD_DIR, doc.get("entity_type", ""), doc.get("filename", ""))
+            if os.path.exists(fp):
+                os.remove(fp)
+        except Exception as e:
+            print(f"[MEDIA] Warning: could not delete file from disk: {e}")
 
     await db.media_assets.delete_one({"_id": ObjectId(media_id)})
     return {"message": "Media deleted successfully"}
