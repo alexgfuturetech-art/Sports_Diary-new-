@@ -440,6 +440,7 @@ class JobCreate(JobBase):
 class JobUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    job_type: Optional[str] = None
     sport_type: Optional[str] = None
     employment_type: Optional[str] = None
     experience_required: Optional[str] = None
@@ -566,6 +567,15 @@ class TournamentCreate(TournamentBase):
 class TournamentUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    city: Optional[str] = None
+    venue_name: Optional[str] = None
+    venue_address: Optional[str] = None
+    entry_fee: Optional[float] = None
+    max_teams: Optional[int] = None
+    contact_person: Optional[str] = None
+    contact_number: Optional[str] = None
+    contact_email: Optional[str] = None
+    rules: Optional[str] = None
     banner_image: Optional[str] = None
     additional_images: Optional[List[str]] = None
     # Rescheduling (used by postpone flow)
