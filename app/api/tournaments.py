@@ -276,6 +276,8 @@ async def update_tournament(
             )
 
     update_data = {k: v for k, v in tournament_data.dict(exclude_unset=True).items() if v is not None}
+    print(f"[UPDATE_TOURNAMENT] update_data keys: {list(update_data.keys())}")
+    print(f"[UPDATE_TOURNAMENT] update_data: {update_data}")
 
     # Auto-stamp cancelled_at when status first moves to 'cancelled'
     if new_status == "cancelled" and "cancelled_at" not in update_data:
