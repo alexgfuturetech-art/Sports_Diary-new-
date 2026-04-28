@@ -259,6 +259,13 @@ class VenueUpdate(BaseModel):
     images: Optional[List[str]] = None
     is_active: Optional[bool] = None
 
+class VenueRequestCreate(BaseModel):
+    venue_name: str
+    address: str
+    city: str
+    contact_phone: str
+    sports: Optional[str] = None
+
 class VenueResponse(VenueBase):
     id: str
     owner_id: Optional[str]

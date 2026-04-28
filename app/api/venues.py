@@ -9,7 +9,7 @@ from app.core.security import get_current_user
 from app.schemas.schemas import (
     VenueCreate, VenueUpdate, VenueResponse,
     BookingCreate, BookingResponse, SplitPaymentRequest,
-    ReviewCreate, ReviewResponse
+    ReviewCreate, ReviewResponse, VenueRequestCreate
 )
 
 router = APIRouter()
@@ -129,6 +129,44 @@ async def get_venues(
     
     return {"venues": venues, "count": total_count}
 
+@router.post("/request")
+async def submit_venue_request(
+    request_data: VenueRequestCreate,
+    current_user: dict = Depends(get_current_user)
+):
+    """Venue owner submits a registration request (saved to venue_requests collection)."""
+    db = get_database()
+    doc = {
+        "venue_name": request_data.venue_name,
+        "address": request_data.address,
+        "city": request_data.city,
+        "contact_phone": request_data.contact_phone,
+        "sports": request_data.sports,
+        "user_id": str(current_user["_id"]),
+        "owner_name": current_user.get("name"),
+        "owner_phone": current_user.get("phone"),
+        "status": "pending",
+        "submitted_at": datetime.utcnow().isoformat(),
+    }
+    result = await db.venue_requests.insert_one(doc)
+    doc["id"] = str(result.inserted_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@router.get("/my-venue")
+async def get_my_venue(current_user: dict = Depends(get_current_user)):
+    """Return the active venue owned by the current user, or 404."""
+    db = get_database()
+    user_id = str(current_user["_id"])
+    venue = await db.venues.find_one({"owner_id": user_id, "is_active": True})
+    if not venue:
+        raise HTTPException(status_code=404, detail="No venue found for this user")
+    venue["id"] = str(venue["_id"])
+    del venue["_id"]
+    return venue
+
+
 @router.get("/{venue_id}")
 async def get_venue(venue_id: str):
     """Get venue by ID"""
@@ -145,6 +183,34 @@ async def get_venue(venue_id: str):
     venue["id"] = str(venue["_id"])
     del venue["_id"]  # Remove ObjectId
     return venue
+
+
+@router.get("/{venue_id}/owner-bookings")
+async def get_venue_owner_bookings(
+    venue_id: str,
+    date: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Get all bookings for a specific venue (venue owner only). Optionally filter by date (YYYY-MM-DD)."""
+    db = get_database()
+    user_id = str(current_user["_id"])
+    try:
+        venue = await db.venues.find_one({"_id": ObjectId(venue_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid venue ID")
+    if not venue:
+        raise HTTPException(status_code=404, detail="Venue not found")
+    if str(venue.get("owner_id", "")) != user_id:
+        raise HTTPException(status_code=403, detail="Not authorised to view bookings for this venue")
+    query: dict = {"venue_id": venue_id}
+    if date:
+        query["booking_date"] = date
+    bookings = await db.bookings.find(query).sort("start_time", 1).to_list(length=200)
+    for b in bookings:
+        b["id"] = str(b["_id"])
+        del b["_id"]
+    return {"bookings": bookings}
+
 
 @router.post("")
 async def create_venue(

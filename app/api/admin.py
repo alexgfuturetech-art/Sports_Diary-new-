@@ -122,6 +122,28 @@ async def delete_user(user_id: str, current_user: dict = Depends(get_current_use
     return {"message": "User deleted", "deleted_id": user_id}
 
 
+# ─── VENUE REGISTRATION REQUESTS ────────────────────────────────────────────
+# Venue owners submit requests via POST /api/venues/request.
+# They appear here as notifications for admin review.
+# TODO: Add accept/deny logic here once admin approval workflow is designed.
+
+@router.get("/venue-requests")
+async def list_venue_requests(
+    skip: int = 0,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user),
+):
+    """List all pending venue registration requests (admin/super_admin)."""
+    _admin_or_super(current_user)
+    db = get_database()
+    total = await db.venue_requests.count_documents({})
+    docs = await db.venue_requests.find({}).sort("submitted_at", -1).skip(skip).limit(limit).to_list(length=limit)
+    for d in docs:
+        d["id"] = str(d["_id"])
+        del d["_id"]
+    return {"requests": docs, "total": total}
+
+
 # ─── VENUE MANAGEMENT ─────────────────────────────────────────────────────────
 
 @router.get("/venues")
